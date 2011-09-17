@@ -137,7 +137,10 @@ def printText(collection):
         
 
 def printHTML(collection):
-    pass
+    years = set([entry.year for entry in collection.itervalues()])
+
+    for year in sorted(years, reverse=True):
+        print """<h4 class="infoscience_year">%s</h4>""" % year
 
 def main():
     parser = ArgumentParser(description="InfoScience publication parser.")
@@ -165,7 +168,7 @@ def main():
                 break
             offset += total
 
-    printText(collection)
+    printHTML(collection)
 
 if __name__ == "__main__":
     sys.exit(main())
