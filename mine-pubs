@@ -1,9 +1,77 @@
 #!/usr/bin/env python
 
 import sys
+import urllib
+import xml.dom.minidom
+
+from argparse import ArgumentParser
+
+base_url = "http://infoscience.epfl.ch/search"
+
+search_cc = "Infoscience/Research/IC/IIF/DSLAB"
+search_p = ""
+search_of = "xm"
+
+class InfoscienceEntry:
+    def __init__(self):
+        self.id = None
+
+class InfoscienceParser:
+    def __init__(self, collection):
+        self.collection = collection
+        self._total = 0
+
+    def _getText(self, nodelist):
+        return "".join([node.data for node in nodelist 
+                        if node.nodeType == node.TEXT_NODE])
+
+    def _handleRecord(self, record):
+        controlfield = int(self._getText(
+                record.getElementsByTagName("controlfield")[0].childNodes
+                    ))
+
+        entry = InfoscienceEntry()
+        entry.id = controlfield
+
+        if entry.id not in self.collection:
+            self.collection[entry.id] = entry
+            self._total += 1
+
+    def _handleCollection(self, collection):
+        for record in collection.getElementsByTagName("record"):
+            self._handleRecord(record)
+
+    def parseXML(self, xmldata):
+        self._total = 0
+        self._handleCollection(xmldata)
+
+        return self._total
 
 def main():
-    return 0
+    parser = ArgumentParser(description="InfoScience publication parser.")
+    parser.add_argument("-f", "--file", help="Parse from external file.")
+
+    args = parser.parse_args()
+
+    collection = { }
+    parser = InfoscienceParser(collection)
+
+    if args.file:
+        with open(args.file, "r") as f:
+            data = f.read()
+        parser.parseXML(xml.dom.minidom.parseString(data))
+    else:
+        offset = 1
+        while True:
+            url = "%s?cc=%s&of=%s&jrec=%d" % (base_url, search_cc, 
+                                              search_of, offset)
+            print url
+            c = urllib.urlopen(url)
+            data = c.read()
+            total = parser.parseXML(xml.dom.minidom.parseString(data))
+            if not total:
+                break
+            offset += total
 
 if __name__ == "__main__":
     sys.exit(main())
