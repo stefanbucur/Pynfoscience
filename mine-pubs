@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 
+import codecs
+import locale
 import sys
 import urllib
 import xml.dom.minidom
 import logging
+import textwrap
 
 from argparse import ArgumentParser
 
@@ -119,32 +122,64 @@ class InfoscienceParser:
 
         return self._total
 
+def _formatAuthors(authors):
+    aexp = [a[1] + " " + a[0] for a in authors]
+    if len(aexp) > 2:
+        astr = ", ".join(aexp[0:-1]) + ", and " + aexp[-1]
+    elif len(aexp) == 2:
+        astr = " and ".join(aexp)
+    else:
+        astr = aexp[0]
+        
+    return astr
+
 def printText(collection):
     years = set([entry.year for entry in collection.itervalues()])
 
     for year in sorted(years, reverse=True):
         print "%d: " % year
-        for entry in filter(lambda entry: entry.year == year, collection.itervalues()):
-            authors = [a[1] + " " + a[0] for a in entry.authors]
-            if len(entry.authors) > 2:
-                astr = ", ".join(authors[0:-1]) + ", and " + authors[-1]
-            elif len(authors) == 2:
-                astr = " and ".join(authors)
-            else:
-                astr = authors[0]
-                
-            print "* '%s', %s" % (entry.title, astr)
+        entries = filter(lambda entry: entry.year == year, collection.itervalues())
+        for entry in sorted(entries, key=lambda entry: entry.id, reverse=True):
+            print "* '%s', %s" % (entry.title, _formatAuthors(entry.authors))
         
 
-def printHTML(collection):
+def printHTML(collection, genbody=False):
+    if genbody:
+        print textwrap.dedent("""\
+              <html xmlns="http://www.w3.org/1999/xhtml">
+              <head>
+                <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+                <title>Infoscience</title>
+              </head>
+              <body>""")
+    print """<div class="iscollection" id="paperlist">"""
+    
     years = set([entry.year for entry in collection.itervalues()])
-
     for year in sorted(years, reverse=True):
-        print """<h4 class="infoscience_year">%s</h4>""" % year
+        print """<h4 class="isyear">%s</h4>""" % year
+        entries = filter(lambda entry: entry.year == year, collection.itervalues())
+        for entry in sorted(entries, key=lambda entry: entry.id, reverse=True):
+            print textwrap.dedent("""\
+                  <div class="isrecord">
+                    <span class="istitle">%s</span>.
+                    <span class="isauthors">%s</span>
+                  </div>""" % ("""<a href="%s">%s</a>""" % (entry.paperurl, entry.title)
+                                if entry.paperurl else entry.title,
+                                _formatAuthors(entry.authors)))
+            
+    print """</div>"""
+    if genbody:
+        print textwrap.dedent("""\
+              </body>
+              </html>""")
 
 def main():
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout)
+    
     parser = ArgumentParser(description="InfoScience publication parser.")
     parser.add_argument("-f", "--file", help="Parse from external file.")
+    parser.add_argument("--html-body", action="store_true", default=False,
+                        help="Output self-contained HTML document.")
 
     args = parser.parse_args()
 
@@ -160,7 +195,7 @@ def main():
         while True:
             url = "%s?cc=%s&of=%s&jrec=%d" % (base_url, search_cc, 
                                               search_of, offset)
-            print url
+            logging.info("Crawling %s" % url)
             c = urllib.urlopen(url)
             data = c.read()
             total = parser.parseXML(xml.dom.minidom.parseString(data))
@@ -168,7 +203,7 @@ def main():
                 break
             offset += total
 
-    printHTML(collection)
+    printHTML(collection, genbody=args.html_body)
 
 if __name__ == "__main__":
     sys.exit(main())
