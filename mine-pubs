@@ -10,8 +10,9 @@ import textwrap
 from argparse import ArgumentParser
 
 from infoscience import InfoscienceEntry, InfoscienceParser
+from string import Template
 
-html_standalone_template = """\
+html_standalone_template = Template("""\
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
@@ -26,9 +27,9 @@ $content
 </div>
 </body>
 </html>
-"""
+""")
 
-html_embedded_template = """\
+html_embedded_template = Template("""\
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
@@ -41,25 +42,25 @@ $content
 </div>
 </body>
 </html>
-"""
+""")
 
-html_year_header = """\
+html_year_header = Template("""\
 <h4 class="isyear">$year</h4>
-"""
+""")
 
-html_record_url = """\
+html_record_url = Template("""\
 <div class="isrecord">
   <span class="istitle"><a href="$url">$title</a></span>.
   <span class="isauthors">$authors</span>
 </div>
-"""
+""")
 
-html_record_plain = """\
+html_record_plain = Template("""\
 <div class="isrecord">
   <span class="istitle">$title</span>.
   <span class="isauthors">$authors</span>
 </div>
-"""
+""")
 
 base_infoscience_url = "http://infoscience.epfl.ch/search"
 
@@ -87,7 +88,24 @@ def printText(collection):
         entries = filter(lambda entry: entry.year == year, collection.itervalues())
         for entry in sorted(entries, key=lambda entry: entry.id, reverse=True):
             print "* '%s', %s" % (entry.title, _formatAuthors(entry.authors))
-        
+
+def printHTML(collection, genbody=True, standalone=False, minyear=0):
+  years = set([entry.year for entry in collection.itervalues()])
+  for year in sorted(years, reverse=True):
+    if year <= minyear:
+      header = html_year_header.substitute(year="Pre-%d" % minyear)
+      entries = filter(lambda entry: entry.year <= year, collection.itervalues())
+    else:
+      header = html_year_header.substitute(year=minyear)
+      entries = filter(lambda entry: entry.year == year, collection.itervalues())
+
+    for entry in sorted(entries, key=lambda entry: (entry.year, entry.id), reverse=True):
+      if entry.paperurl:
+        record = html_record_url.substitute(url=entry.paperurl, title=entry.title,
+                                            _formatAuthors(entry.authors))
+      else:
+        record = html_record_plain.substitute(title=entry.title,
+                                              _formatAuthors(entry.authors))
 
 def printHTML(collection, genbody=True, standalone=False):
     if genbody:
@@ -100,7 +118,7 @@ def printHTML(collection, genbody=True, standalone=False):
               <body>""")
     print """<div class="iscollection" id="paperlist">"""
     
-    years = set([entry.year for entry in collection.itervalues()])
+    
     for year in sorted(years, reverse=True):
         print """<h4 class="isyear">%s</h4>""" % year
         entries = filter(lambda entry: entry.year == year, collection.itervalues())
