@@ -4,123 +4,69 @@ import codecs
 import locale
 import sys
 import urllib
-import xml.dom.minidom
 import logging
 import textwrap
 
 from argparse import ArgumentParser
 
-base_url = "http://infoscience.epfl.ch/search"
+from infoscience import InfoscienceEntry, InfoscienceParser
+
+html_standalone_template = """\
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <title>$title</title>
+  <link href="dslab-infoscience-common.css" rel="stylesheet" type="text/css"/>
+  <link href="dslab-standalone.css" rel="stylesheet" type="text/css"/>
+</head>
+<body>
+<h1>$title</h1>
+<div class="iscollection" id="paperlist">
+$content
+</div>
+</body>
+</html>
+"""
+
+html_embedded_template = """\
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <title>$title</title>
+  <link href="dslab-infoscience-common.css" rel="stylesheet" type="text/css"/>
+</head>
+<body>
+<div class="iscollection" id="paperlist">
+$content
+</div>
+</body>
+</html>
+"""
+
+html_year_header = """\
+<h4 class="isyear">$year</h4>
+"""
+
+html_record_url = """\
+<div class="isrecord">
+  <span class="istitle"><a href="$url">$title</a></span>.
+  <span class="isauthors">$authors</span>
+</div>
+"""
+
+html_record_plain = """\
+<div class="isrecord">
+  <span class="istitle">$title</span>.
+  <span class="isauthors">$authors</span>
+</div>
+"""
+
+base_infoscience_url = "http://infoscience.epfl.ch/search"
 
 search_cc = "Infoscience/Research/IC/IIF/DSLAB"
 search_p = ""
 search_of = "xm"
 
-class InfoscienceEntry:
-    def __init__(self):
-        self.id = None
-        self.title = None
-        self.authors = []
-        self.venue = None
-        self.paperurl = None
-        self.year = None
-
-class InfoscienceParser:
-    def __init__(self, collection):
-        self.collection = collection
-        self._total = 0
-
-    def _getText(self, nodelist):
-        return "".join([node.data for node in nodelist 
-                        if node.nodeType == node.TEXT_NODE])
-
-    def _handleURLSubfield(self, subfield, entry):
-        code = subfield.getAttribute("code")
-        if code == "x" and self._getText(subfield.childNodes) != "PUBLIC": # Visibility
-            logging.warning("Non-public URL for entry %d" % entry.id)
-        if code == "u": # Actual title
-            entry.paperurl = self._getText(subfield.childNodes)                
-
-    def _handleTitleSubfield(self, subfield, entry):
-        code = subfield.getAttribute("code")
-        if code == "a": # Main title
-            entry.title = self._getText(subfield.childNodes)
-        elif code == "b":
-            entry.title += ": " + self._getText(subfield.childNodes)
-
-    def _handleAuthorSubfield(self, subfield, entry):
-        code = subfield.getAttribute("code")
-        if code == "a":
-            author = self._getText(subfield.childNodes).split(",")
-            entry.authors.append((author[0].strip(), author[1].strip()))
-
-    def _handleLocationSubfield(self, subfield, entry):
-        code = subfield.getAttribute("code")
-        if code == "a": # Place
-            pass
-        elif code == "b": # Publisher
-            pass
-        elif code == "c": # Year
-            entry.year = int(self._getText(subfield.childNodes))
-
-    def _handleConferenceSubfield(self, subfield, entry):
-        code = subfield.getAttribute("code")
-        if code == "a": # Name
-            entry.venue = self._getText(subfield.childNodes)
-        elif code == "c": # Place
-            entry.venue += ", " + self._getText(subfield.childNodes)
-        elif code == "d": # Date
-            entry.venue += ", " + self._getText(subfield.childNodes)
-
-    def _handleJournalSubfield(self, datafield, entry):
-        pass
-
-    def _handleDatafield(self, datafield, entry):
-        tag = int(datafield.getAttribute("tag"))
-
-        for subfield in datafield.getElementsByTagName("subfield"):
-            if tag == 245: # Title
-                self._handleTitleSubfield(subfield, entry)
-            elif tag == 260: # Publication date & place
-                self._handleLocationSubfield(subfield, entry)
-            elif tag == 700: # Authors
-                self._handleAuthorSubfield(subfield, entry)
-            elif tag == 711: # Conference
-                self._handleConferenceSubfield(subfield, entry)
-            elif tag == 773: # Journal
-                self._handleJournalSubfield(subfield, entry)
-            elif tag == 856: # Paper URL
-                self._handleURLSubfield(subfield, entry)
-
-    def _handleRecord(self, record):
-        controlfield = int(self._getText(
-                record.getElementsByTagName("controlfield")[0].childNodes
-                    ))
-
-        entry = InfoscienceEntry()
-        entry.id = controlfield
-
-        if entry.id not in self.collection:
-            self.collection[entry.id] = entry
-            self._total += 1
-            
-            for datafield in record.getElementsByTagName("datafield"):
-                self._handleDatafield(datafield, entry)
-                
-            assert entry.year, "No publication year"
-            assert entry.title, "No publication title"
-            assert entry.authors, "No publication authors"
-            # print entry.id, entry.year
-
-    def _handleCollection(self, collection):
-        for record in collection.getElementsByTagName("record"):
-            self._handleRecord(record)
-
-    def parseXML(self, xmldata):
-        self._total = 0
-        self._handleCollection(xmldata)
-
-        return self._total
 
 def _formatAuthors(authors):
     aexp = [a[1] + " " + a[0] for a in authors]
@@ -143,7 +89,7 @@ def printText(collection):
             print "* '%s', %s" % (entry.title, _formatAuthors(entry.authors))
         
 
-def printHTML(collection, genbody=False):
+def printHTML(collection, genbody=True, standalone=False):
     if genbody:
         print textwrap.dedent("""\
               <html xmlns="http://www.w3.org/1999/xhtml">
@@ -178,8 +124,10 @@ def main():
     
     parser = ArgumentParser(description="InfoScience publication parser.")
     parser.add_argument("-f", "--file", help="Parse from external file.")
-    parser.add_argument("--html-body", action="store_true", default=False,
-                        help="Output self-contained HTML document.")
+    parser.add_argument("--bare", action="store_true", default=False,
+                        help="Output bare HTML (without body).")
+    parser.add_argument("--stand-alone", action="store_true", default=False,
+                        help="Output stand-alone HTML document.")
 
     args = parser.parse_args()
 
@@ -189,21 +137,21 @@ def main():
     if args.file:
         with open(args.file, "r") as f:
             data = f.read()
-        parser.parseXML(xml.dom.minidom.parseString(data))
+        parser.parseXML(data)
     else:
         offset = 1
         while True:
-            url = "%s?cc=%s&of=%s&jrec=%d" % (base_url, search_cc, 
+            url = "%s?cc=%s&of=%s&jrec=%d" % (base_infoscience_url, search_cc, 
                                               search_of, offset)
             logging.info("Crawling %s" % url)
             c = urllib.urlopen(url)
             data = c.read()
-            total = parser.parseXML(xml.dom.minidom.parseString(data))
+            total = parser.parseXML(data)
             if not total:
                 break
             offset += total
 
-    printHTML(collection, genbody=args.html_body)
+    printHTML(collection, genbody=not args.bare, standalone=args.stand_alone)
 
 if __name__ == "__main__":
     sys.exit(main())
