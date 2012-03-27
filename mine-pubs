@@ -102,12 +102,14 @@ def printHTML(collection, genbody=True, standalone=False, minyear=0):
     for entry in sorted(entries, key=lambda entry: (entry.year, entry.id), reverse=True):
       if entry.paperurl:
         record = html_record_url.substitute(url=entry.paperurl, title=entry.title,
-                                            _formatAuthors(entry.authors))
+                                            authors=_formatAuthors(entry.authors))
       else:
         record = html_record_plain.substitute(title=entry.title,
-                                              _formatAuthors(entry.authors))
+                                              authors=_formatAuthors(entry.authors))
 
 def printHTML(collection, genbody=True, standalone=False):
+    years = set([entry.year for entry in collection.itervalues()])
+
     if genbody:
         print textwrap.dedent("""\
               <html xmlns="http://www.w3.org/1999/xhtml">
